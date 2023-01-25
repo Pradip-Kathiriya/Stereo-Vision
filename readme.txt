@@ -1,19 +1,4 @@
-ReadME file for ENPM 673 project 2
+![Feature_matchin](https://user-images.githubusercontent.com/90370308/214719460-a4e2efde-6bb1-4867-bd45-8131e9164948.png)
 
-####################
-### Library used ###
-####################
-
-OpenCV, Numpy, copy
-
-#######################
-### How to run code ###
-#######################
-
-1. Open zip file and save entire folder into your directory
-2. copy the data folder inside the folder
-	For curule: Run curule.py file
-	For octagon : Run octagon.py file
-	For pendulum : Run pendulum.py  file
 	
 
