@@ -1,6 +1,50 @@
 import numpy as np
 import cv2 as cv
 import copy
+import matplotlib.pyplot as plt
+import DrawCameras
+import math
+
+# Checks if a matrix is a valid rotation matrix.
+def isRotationMatrix(R):
+    """To check if the matrix id rotation matrix
+    Args:
+        R (TYPE): Input matrix
+    Returns:
+        TYPE: Norm of image
+    """
+    Rt = np.transpose(R)
+
+    shouldBeIdentity = np.dot(Rt, R)
+    I = np.identity(3, dtype=R.dtype)
+    n = np.linalg.norm(I - shouldBeIdentity)
+    return n < 1e-6
+
+
+# Calculates rotation matrix to euler angles
+def rotationMatrixToEulerAngles(R):
+    """Convert Rotation Matrix to Euler angless
+    Args:
+        R (TYPE): Rotation Matrix
+    Returns:
+        TYPE: Angles x,y,z in radians
+    """
+    assert (isRotationMatrix(R))
+
+    sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+
+    singular = sy < 1e-6
+
+    if not singular:
+        x = math.atan2(R[2, 1], R[2, 2])
+        y = math.atan2(-R[2, 0], sy)
+        z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        x = math.atan2(-R[1, 2], R[1, 1])
+        y = math.atan2(-R[2, 0], sy)
+        z = 0
+
+    return np.array([x, y, z])
 
 # compute fundamental matrix
 def getFunamentalMatrix(L,R):
@@ -15,12 +59,13 @@ def getFunamentalMatrix(L,R):
                   [L[7][0]*R[7][0] , L[7][0]*R[7][1], L[7][0] , L[7][1]*R[7][0] , L[7][1]*R[7][1] , L[7][1] , R[7][0] , R[7][1] , 1],
                   ])
     
-    _, _, V = np.linalg.svd(A)
-    F = np.reshape(V[-1, :],(3,3))
+    _, _, V_t = np.linalg.svd(A)
+    V = V_t.T
+    F = np.reshape(V[:, -1],(3,3))
     F = np.round_(F, decimals=3)
     
     if np.linalg.matrix_rank(F) == 3: 
-        print('hii')
+
         U,S,V = np.linalg.svd(F)
         w = np.zeros((3,3))
         w[0,0] = S[1]
@@ -30,10 +75,10 @@ def getFunamentalMatrix(L,R):
     return F
 
 def bestFundamentalMatrix(list_kp1, list_kp2):
-    epsilon = 0.01
+    epsilon = 0.10
     best_F = []
     highest_inlier = 0
-    num_iteration = 100
+    num_iteration = 5000
     best_kp1 = []
     best_kp2 = []
     for i in range(num_iteration):
@@ -41,14 +86,16 @@ def bestFundamentalMatrix(list_kp1, list_kp2):
         kp1 = list_kp1[idx,:]
         kp2 = list_kp2[idx,:]
         F = getFunamentalMatrix(kp1,kp2)
+
         inlier = 0
         for i in range(len(list_kp1)):
             x = np.array([list_kp1[i][0], list_kp1[i][1], 1])
             x_t = np.array([list_kp2[i][0], list_kp2[i][1], 1]).T
-            if np.dot(x,np.dot(F,x_t)) < epsilon:
+            if abs(np.dot(x_t,np.dot(F,x))) < epsilon:
                 inlier += 1
 
         if inlier > highest_inlier:
+
             highest_inlier = inlier
             best_F = F
             best_kp1 = kp1
@@ -72,7 +119,7 @@ def extractCameraPose(essential_matrix):
     R_set.append(R1)
     C_set.append(C1)
         
-    C2 = -U[:,-1]
+    C2 = U[:,-1]
     R2 = np.dot(U,np.dot(W.T,V))
     if np.linalg.det(R2) == -1:
         R2 = -R2
@@ -80,7 +127,7 @@ def extractCameraPose(essential_matrix):
     R_set.append(R2)
     C_set.append(C2)
         
-    C3 = U[:,-1]
+    C3 = -U[:,-1]
     R3 = np.dot(U,np.dot(W,V))
     if np.linalg.det(R3) == -1:
         R3 = -R3
@@ -99,17 +146,17 @@ def extractCameraPose(essential_matrix):
     return R_set, C_set
 
 # Visualize epilines
-def drawlines(img1src, lines, pts1src):
+# def drawlines(img1src, lines, pts1src):
 
-    r, c,_= img1src.shape
-    np.random.seed(0)
-    for r, pt1 in zip(lines, pts1src):
-        color = tuple(np.random.randint(0, 255, 3).tolist())
-        x0, y0 = map(int, [0, -r[2]/r[1]])
-        x1, y1 = map(int, [c, -(r[2]+r[0]*c)/r[1]])
-        img1color = cv.line(img1src, (x0, y0), (x1, y1), color, 1)
-        img1color = cv.circle(img1color, tuple(pt1), 5, color, -1)
-    return img1color
+#     r, c,_= img1src.shape
+#     np.random.seed(0)
+#     for r, pt1 in zip(lines, pts1src):
+#         color = tuple(np.random.randint(0, 255, 3).tolist())
+#         x0, y0 = map(int, [0, -r[2]/r[1]])
+#         x1, y1 = map(int, [c, -(r[2]+r[0]*c)/r[1]])
+#         img1color = cv.line(img1src, (x0, y0), (x1, y1), color, 1)
+#         img1color = cv.circle(img1color, tuple(pt1), 5, color, -1)
+#     return img1color
 
 def getMatchingFeature(image1, image2):
     
@@ -120,15 +167,23 @@ def getMatchingFeature(image1, image2):
     bf = cv.BFMatcher()
     matches = bf.knnMatch(des1, des2, k=2)
 
+    lowe_ratio = 0.45
+
     best_matches = []
     for m,n in matches:
-        if m.distance < 0.65*n.distance:
+        if m.distance < lowe_ratio*n.distance:
             best_matches.append(m)
+            
+    draw_pt = []
+    for m,n in matches:
+        if m.distance < lowe_ratio*n.distance:
+            draw_pt.append([m])
             
     list_kp1 = np.int32([kp1[mat.queryIdx].pt for mat in best_matches])
     list_kp2 = np.int32([kp2[mat.trainIdx].pt for mat in best_matches])
+    final_image = cv.drawMatchesKnn(image1,kp1,image2,kp2,draw_pt,None,flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
     
-    return list_kp1, list_kp2
+    return final_image , list_kp1, list_kp2
 
 def calculateDisparity(image1, image2):
 
@@ -160,6 +215,12 @@ def calculateDisparity(image1, image2):
     disparity_map = (disparity_map/np.max(disparity_map))*255
     disparity_map = disparity_map.astype(np.uint8)
     return disparity_map     
+
+# def calculateDisparity(image1, image2):
+    
+#     disparity_map = np.zeros((image2.shape[0], image2.shape[1]), dtype=np.float64)
+    
+    
 
 def computeDepthMap(image, baseline, focal_x):
     
@@ -234,39 +295,66 @@ def disambiguateCameraPose(R_set, C_set, x3D_set):
 
     return R, C
 
+def drawlines(img1, img2, lines, pts1, pts2):
+    
+    r, c,_ = img1.shape
+    # print(r)
+    # print(c)
+      
+    for r, pt1, pt2 in zip(lines, pts1, pts2):
+          
+        color = tuple(np.random.randint(0, 255,
+                                        3).tolist())
+          
+        x0, y0 = map(int, [0, -r[2] / r[1] ])
+        x1, y1 = map(int, 
+                     [c, -(r[2] + r[0] * c) / r[1] ])
+          
+        img1 = cv.line(img1, 
+                        (x0, y0), (x1, y1), color, 1)
+        img1 = cv.circle(img1,
+                          tuple(pt1), 5, color, -1)
+        img2 = cv.circle(img2, 
+                          tuple(pt2), 5, color, -1)
+    return img1, img2
+
 def main():
 
     octagon_left = cv.imread('data/octagon/im0.png',1)
     octagon_left = cv.resize(octagon_left, (int(octagon_left.shape[1]*0.5), int(octagon_left.shape[0]*0.5)))
 
-
     octagon_right = cv.imread('data/octagon/im1.png',1)
     octagon_right = cv.resize(octagon_right, (int(octagon_right.shape[1]*0.5), int(octagon_right.shape[0]*0.5)))
 
-    list_kp1, list_kp2 = getMatchingFeature(octagon_left, octagon_right)
+    final_image, list_kp1, list_kp2 = getMatchingFeature(octagon_left, octagon_right)
+    cv.imshow('Final_image', final_image)
+    cv.imwrite('Feature_matching.png', final_image)
+    
     kp1 = copy.copy(list_kp1)
     kp2 = copy.copy(list_kp2)
-    
+    F, best_kp1, best_kp2 = bestFundamentalMatrix(list_kp1, list_kp2)
     kp1 = list_kp1[:8]
     kp2 = list_kp2[:8]
     F = getFunamentalMatrix(kp1,kp2)
-    best_kp1 = list_kp1[:8]
-    best_kp2 = list_kp2[:8]
-    print('=======')
-    print('Fundamental Matrix')
-    print(F)
+    # best_kp1 = list_kp1[:8]
+    # best_kp2 = list_kp2[:8]
+    # print('=======')
+    # print('Fundamental Matrix')
+    # print(F)
     
     K = np.array([[1742.11, 0, 804.90],[0, 1742.11, 541.22], [0, 0, 1]])
     
-    # essentail matrix
+    # # essentail matrix
     E = np.dot(np.dot(K.T,F),K)
     U,S,V = np.linalg.svd(E)
     S = np.diag(S)
     S[-1,-1] = 0
+    S[1,1] = 1
+    S[0,0] = 1
     E = np.dot(np.dot(U,S),V)
-    print('=======')
-    print('Essential Matrix')
-    print(E)
+    # print('=======')
+    # print('Essential Matrix')
+    # print(E)
 
     R_set, C_set = extractCameraPose(E)
     
@@ -275,31 +363,30 @@ def main():
 
     x3D_set = linear_triangulation(R_set, C_set, kp1, kp2, K1, K2)
     R, C = disambiguateCameraPose(R_set, C_set, x3D_set)
-    print('=======')
-    print('camera rotation')
-    print(R)
-    print('=======')
-    print('camera translation')
-    print(C)
+    # print('=======')
+    # print('camera rotation')
+    # print(R)
+    # print('=======')
+    # print('camera translation')
+    # print(C)
 
-    # Find epilines corresponding to points in right image (second image) and
+    # Find epipolarlines corresponding to points in right image (second image) and
     # drawing its lines on left image
-    lines1 = cv.computeCorrespondEpilines(best_kp2.reshape(-1, 1, 2), 2, F)
+    lines1 = cv.computeCorrespondEpilines(list_kp2.reshape(-1, 1, 2), 2, F)
     lines1 = lines1.reshape(-1, 3)
     octagon_left_copy = copy.copy(octagon_left)
-    octagon_left_epiline = drawlines(octagon_left_copy, lines1, best_kp1)
-
     # Find epilines corresponding to points in left image (first image) and
     # drawing its lines on right image
-    lines1 = cv.computeCorrespondEpilines(best_kp1.reshape(-1, 1, 2), 2, F)
-    lines1 = lines1.reshape(-1, 3)
+    lines2 = cv.computeCorrespondEpilines(list_kp1.reshape(-1, 1, 2), 2, F)
+    lines2 = lines2.reshape(-1, 3)
     octagon_right_copy = copy.copy(octagon_left)
-    octagon_right_epiline = drawlines(octagon_right_copy, lines1, best_kp2)
     
-    
+    octagon_left_epiline,_ = drawlines(octagon_left_copy,octagon_right_copy, lines1, list_kp1, list_kp2)
+    octagon_right_epiline,_ = drawlines(octagon_right_copy, octagon_left_copy, lines2, list_kp2, list_kp1)
     image = np.concatenate((octagon_left_epiline,octagon_right_epiline), axis =1)
-    # cv.imshow('Rectified Epipolar Line', image)
-    cv.imwrite('Epipolar.png', image)
+    # cv.imshow('Matching_Points_and_Epipolar_line.png', image)
+    # cv.imwrite('Matching_Points_and_Epipolar_line.png', image)
+    # cv.waitKey(0)
 
     h1, w1,_ = octagon_left.shape
     h2, w2,_ = octagon_right.shape
@@ -310,6 +397,7 @@ def main():
     image = np.concatenate((octagon_left_rectified_epi,octagon_right_rectified_epi), axis =1)
     cv.imshow('Rectified Epipolar Line', image)
     cv.imwrite('Rectified_Epipolar.png', image)
+    cv.waitKey(0)
     
     octagon_left_rectified = cv.warpPerspective(octagon_left, H1, (w1, h1))
     octagon_right_rectified = cv.warpPerspective(octagon_right, H2, (w2, h2))
